@@ -1,1 +1,13 @@
 .clangd
+
+# build outputs
+*.o
+*.d
+*.a
+*.elf
+*.bin
+*.list
+objs/
+
+# macOS
+.DS_Store

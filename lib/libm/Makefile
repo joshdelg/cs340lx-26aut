@@ -23,7 +23,7 @@ SRC := $(LIB_OBJS:.o=.c)
 
 USE_FP := 1
 
-include $(CS240LX_2026_PATH)/libpi/defs.mk
+include $(CS340LX_2026_PATH)/libpi/defs.mk
 
 CFLAGS += -Iinclude
 

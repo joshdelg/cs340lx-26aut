@@ -1,6 +1,4 @@
 .clangd
-<<<<<<< HEAD
-=======
 
 # build outputs
 *.o
@@ -12,5 +10,4 @@
 objs/
 
 # macOS
->>>>>>> f538230 (Update Makefile to point to 340LX)
 .DS_Store

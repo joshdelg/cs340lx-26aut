@@ -18,6 +18,8 @@ void get_dynamic_sections(my_elf32 *e);
 void load_time_relocation(my_elf32 *e);
 
 // Given a symbol name and an elf file, find the address of the symbol in the first dl_obj
-uint32_t dl_lookup(char* name);
+uint32_t dl_lookup_or_null(char *name); // 0 if not found (used by dlsym)
+uint32_t dl_lookup(char* name); // panic if not found
+uint32_t dl_builtin_lookup(char* name); // Search only through "builtins" ("dlfcn.h")
 
 #endif

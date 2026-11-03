@@ -28,6 +28,7 @@
 #define SHT_REL 9
 #define SHT_NOBITS 8
 #define SHT_DYNSYM 11
+#define STB_LOCAL 0
 
 #define DT_NULL 0
 #define DT_NEEDED 1

@@ -7,8 +7,8 @@
 // static char *exec_filename = "0-DYN.ELF";
 // static char *exec_filename = "1-DYN.ELF";
 // static char *exec_filename = "2-DYN.ELF";
-// static char *exec_filename = "3-DYN.ELF";
-static char *exec_filename = "MULTI.ELF";
+static char *exec_filename = "3-DYN.ELF";
+// static char *exec_filename = "MULTI.ELF";
 static char *exec_base = (char *)0x0;
 
 static char *libpi_filename = "LIBPI.SO";
@@ -117,9 +117,11 @@ void notmain() {
     for (int i = 0; i < dl_nobjs; i++)
         printk("[MY-DL] obj %d: %s @ %x, size %x\n", i, dl_objs[i].name, dl_objs[i].base, dl_objs[i].size);
 
-    // For each lib 1) resolve its imported symbols 2) relocate everything
+    // @joshdelg For each lib, process the relocations:
+    // This has been upgraded from the old version. Instead of a separate `resolve_imports` step where,
+    // for every UNDEF symbol in libpi, we hardcode resolving it from the exec ELF and writing its addr,
+    // we instead dl_lookup any UNDEF or overridable symbol at relocation time.
     for(unsigned i = 1; i < dl_nobjs; i++) {
-        dl_resolve_imports(&dl_objs[i]);
         load_time_relocation(&dl_objs[i].e);
     }
 

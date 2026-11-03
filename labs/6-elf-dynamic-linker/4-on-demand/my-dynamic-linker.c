@@ -149,17 +149,19 @@ uint32_t dl_find_in_obj(dl_obj *obj, char *name) {
     uint32_t nbucket = e->e_hash[0];
     uint32_t nchain = e->e_hash[1];
 
-    printk("[MY-DL] Number of buckets: %d, number of chains: %d\n", nbucket, nchain);
+    // printk("[MY-DL] Number of buckets: %d, number of chains: %d\n", nbucket, nchain);
 
     // Compute hash value and bucket index
     uint32_t hash = compute_elf_hash(name);
-    printk("[MY-DL] Hash: %d\n", hash);
+    // printk("[MY-DL] Hash: %d\n", hash);
+
     uint32_t bucket_idx = __aeabi_uidivmod(hash, nbucket);
-    printk("[MY-DL] Bucket index: %d\n", bucket_idx);
+    // printk("[MY-DL] Bucket index: %d\n", bucket_idx);
+    
     uint32_t *bucket = e->e_hash + 2;
     uint32_t *chain = e->e_hash + 2 + nbucket;
     uint32_t chain_idx = bucket[bucket_idx];
-    printk("[MY-DL] Chain index: %d\n", chain_idx);
+    // printk("[MY-DL] Chain index: %d\n", chain_idx);
 
     elf32_sym *syms = e->e_dynsym;
 
@@ -169,7 +171,7 @@ uint32_t dl_find_in_obj(dl_obj *obj, char *name) {
         // obj just *imports* this, doesn't acutally define
         if(symtab_entry->st_shndx != SHN_UNDEF) {
             char *sym_name_chain = e->e_dynstr + symtab_entry->st_name;
-            printk("[MY-DL] Symbol name (chain): %s\n", sym_name_chain);
+            // printk("[MY-DL] Symbol name (chain): %s\n", sym_name_chain);
 
             if (strcmp(sym_name_chain, name) == 0) {
                 symbol_addr = (uint32_t) (elf32_base + symtab_entry->st_value);
@@ -181,7 +183,7 @@ uint32_t dl_find_in_obj(dl_obj *obj, char *name) {
         // If was incorrect, follow the link
         chain_idx = chain[chain_idx];
         symtab_entry = &syms[chain_idx];
-        printk("[MY-DL] New chain index: %d\n", chain_idx);
+        // printk("[MY-DL] New chain index: %d\n", chain_idx);
     }
 
     return symbol_addr;

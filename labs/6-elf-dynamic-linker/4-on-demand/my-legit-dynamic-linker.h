@@ -42,4 +42,6 @@ typedef struct {
 #define DL_LIB_REGION_END   0x20000000   // peripherals start here (see the README memory map)
 #define DL_LIB_ALIGN        0x100000     // 1MB: matches a VM section, in case you do extension C
 
+void dl_resolve_imports(dl_obj *obj);
+
 #endif

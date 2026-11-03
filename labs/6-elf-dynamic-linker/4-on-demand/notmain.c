@@ -1,5 +1,6 @@
 #include "rpi.h"
 #include "my-legit-dynamic-linker.h"
+#include "my-elf-loader.h"
 
 // Change this to the filename of the dynamically linked ELF file you want to load
 // static char *exec_filename = "0-DYN.ELF";
@@ -10,18 +11,22 @@ static char *exec_base = (char *)0x0;
 my_elf32 *exec_e;
 
 static char *libpi_filename = "LIBPI.SO";
-static char *libpi_base = (char *)0x10000000; // 0x1000'0000 (256MB)
 my_elf32 *libpi_e;
 
 // @joshdelg Extension B: Factor per-object steps into general library loader
 static dl_obj dl_objs[DL_MAX_OBJS];
 static int dl_nobjs = 0; // dl_objs[0] = executable
+static char *dl_next_base = (char *)DL_LIB_REGION_START; // exec is always at 0
+
+static uint32_t align_up(uint32_t x, uint32_t a) {
+    return (x + a - 1) & ~(a - 1);
+}
 
 dl_obj *load_object(char* name, char* base) {
     assert(dl_nobjs < DL_MAX_OBJS);
     dl_obj *obj = &dl_objs[dl_nobjs++];
 
-    load_elf(name, base);
+    uint32_t size = load_elf(name, base);
 
     elf32_header *object_header = (elf32_header *)base;
     verify_elf(object_header);
@@ -33,9 +38,24 @@ dl_obj *load_object(char* name, char* base) {
     obj->base = base;
     obj->e.e_sheaders = (elf32_sheader *)(base + object_header->e_shoff);
     obj->e.e_pheaders = (elf32_pheader *)(base + object_header->e_phoff);
-
     get_dynamic_sections(&obj->e);
 
+    for (int i = 0; i < object_header->e_phnum; i++) {
+        elf32_pheader *ph = &obj->e.e_pheaders[i];
+        // Check if any sections would extend past the end of the file, 
+        if (ph->p_type == PT_LOAD && ph->p_vaddr + ph->p_memsz > size)
+            size = ph->p_vaddr + ph->p_memsz;
+    }
+    obj->size = size;
+
+    return obj;
+}
+
+// Load the object and position it in memory
+dl_obj *load_library(char *name) {
+    dl_obj *obj = load_object(name, dl_next_base);
+    dl_next_base = (char *)align_up((uint32_t)obj->base + obj->size, DL_LIB_ALIGN);
+    assert((uint32_t)dl_next_base <= DL_LIB_REGION_END);
     return obj;
 }
 
@@ -69,7 +89,7 @@ void notmain() {
 
     dl_obj *exe = load_object(exec_filename, exec_base);
     exec_e = &exe->e;
-    dl_obj *libpi = load_object(libpi_filename, libpi_base);
+    dl_obj *libpi = load_library(libpi_filename);
     libpi_e = &libpi->e;
 
     // (Already done for you) Resolve all undefined symbols in the .dynsym section of the 
@@ -87,6 +107,9 @@ void notmain() {
     // This is the address that the program will jump to when it reaches an unresolved symbol.
     exec_e->e_pltgot[2] = (uint32_t)dynamic_linker_entry_asm;
     // exe->e.e_pltgot[2] = (uint32_t)dynamic_linker_entry_asm;
+
+    for (int i = 0; i < dl_nobjs; i++)
+        printk("[MY-DL] obj %d: %s @ %x, size %x\n", i, dl_objs[i].name, dl_objs[i].base, dl_objs[i].size);
 
     // Jump to the entry point of the ELF file. The dynamic linking will automatically happen!
     // jump_to_elf_entry(exec_e_header);

@@ -1,28 +1,6 @@
 #include "rpi.h"
 #include "my-legit-dynamic-linker.h"
 
-// `load_time_resolve` replacement that searches all objs.
-// 1) Finds all UNDEF symbols in an `obj`
-// 2) Resolves them by searching through *all* objs (not hardcoding search for libpi symbols in exec)
-// 3) writes the real addr into `st_value` so that our relocation hack,
-// which only adds `base` if the symbol is defined in the same lib will still work
-void dl_resolve_imports(dl_obj *obj) {
-    printk("[MY-DL] Resolving undefined symbols in shared library...\n");
-
-    // Best-effort attempt to resolve undefined symbols in the .dynsym section
-    my_elf32* dyn_e = &obj->e;
-
-    uint32_t n_symbols = dyn_e->e_hash[1]; // this is equivalent to the number of symbols in .dynsym
-    for (int i = 0; i < n_symbols; i++) {
-        if (dyn_e->e_dynsym[i].st_shndx == SHN_UNDEF && dyn_e->e_dynsym[i].st_name) { // symbol is undefined
-            char *symbol_name = dyn_e->e_dynstr + dyn_e->e_dynsym[i].st_name;
-            // printk("[MY-DL] Undefined symbol: %s\n", symbol_name);
-            // printk("[MY-DL] resolved addr: %x\n", resolve_symbol(&main_elf, symbol_name));
-            dyn_e->e_dynsym[i].st_value = dl_lookup(symbol_name);
-        }
-    }
-}
-
 // Called by my_dl_entry_asm
 // gotplt: the address of the third entry of .got.plt
 // gotplt_entry: the address of the unresolved symbol's .got.plt entry
@@ -68,5 +46,4 @@ uint32_t dynamic_linker_entry_c(uint32_t *gotplt, uint32_t *gotplt_entry) {
     printk("[MY-DL] Dynamic linker: Resolved symbol %s from obj %s to %x\n", symbol_name, obj->name, symbol_addr);
 
     return symbol_addr; // the rest should be handled by asm
-    // return 0;
 }

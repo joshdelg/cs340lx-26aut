@@ -14,8 +14,8 @@ static char *libpi_filename = "LIBPI.SO";
 my_elf32 *libpi_e;
 
 // @joshdelg Extension B: Factor per-object steps into general library loader
-static dl_obj dl_objs[DL_MAX_OBJS];
-static int dl_nobjs = 0; // dl_objs[0] = executable
+dl_obj dl_objs[DL_MAX_OBJS];
+int dl_nobjs = 0; // dl_objs[0] = executable
 static char *dl_next_base = (char *)DL_LIB_REGION_START; // exec is always at 0
 
 static uint32_t align_up(uint32_t x, uint32_t a) {
@@ -125,10 +125,15 @@ void notmain() {
     // (Already done for you) Resolve all undefined symbols in the .dynsym section of the 
     // libpi.so. This is needed because some symbols in libpi.so exist in our main executable (e.g., `notmain`),
     // so it must be resolved at load-time.
-    load_time_resolve(exec_e, libpi_e);
+    // load_time_resolve(exec_e, libpi_e);
 
-    // Perform load-time relocation for position-independent code (part 2)
-    load_time_relocation(libpi_e);
+    // // Perform load-time relocation for position-independent code (part 2)
+    // load_time_relocation(libpi_e);
+
+    printk("notmain -> %x\n", dl_lookup("notmain"));   // in the exe: matches what part 3 printed (0x5xx)
+    printk("printk  -> %x\n", dl_lookup("printk"));    // 0x1000xxxx: exe imports it, so it must skip to libpi
+    printk("bogus   -> %x\n", dl_lookup("nope_xyz"));  // 0
+
 
     // The only step needed for true runtime dynamic linking: fill in .got.plt[2] with the 
     //  address of the dynamic linker entry function.

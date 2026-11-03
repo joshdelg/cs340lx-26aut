@@ -52,13 +52,6 @@ uint32_t dynamic_linker_entry_c(uint32_t *gotplt, uint32_t *gotplt_entry) {
     // Calculate the index of the symbol in the .rel.dyn section
     uint32_t i = ((uint32_t) (gotplt_entry) / 4 - (uint32_t) (gotplt) / 4) - 1;
 
-    // // Print out each .rel.dyn entry
-    // for(int i = 0; i < 1000; i++) {
-    //     char *symbol_name = exec_e.e_dynstr + exec_e.e_dynsym[exec_e.e_reldyn[i].r_info >> 8].st_name;
-    //     printk("[MY-DL] .rel.dyn[%d]: %s\n", i, symbol_name);
-    // }
-    // return 0;
-
     uint32_t dynsym_index = (uint32_t) (exec_e->e_reldyn[i].r_info >> 8);
     char *symbol_name = exec_e->e_dynstr + exec_e->e_dynsym[dynsym_index].st_name;
 

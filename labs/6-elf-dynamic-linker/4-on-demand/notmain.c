@@ -22,6 +22,19 @@ static uint32_t align_up(uint32_t x, uint32_t a) {
     return (x + a - 1) & ~(a - 1);
 }
 
+// Convert to uppercase and ensure length
+static void dl_fat_name(char *dst, const char *src, unsigned n) {
+    unsigned i;
+    for (i = 0; i < n - 1 && src[i]; i++) {
+        char c = src[i];
+        dst[i] = (c >= 'a' && c <= 'z') ? c - 'a' + 'A' : c;
+    }
+    dst[i] = 0;
+    
+    if (src[i])
+        panic("[MY-DL] library name too long for 8.3: %s\n", src);
+}
+
 dl_obj *load_object(char* name, char* base) {
     assert(dl_nobjs < DL_MAX_OBJS);
     dl_obj *obj = &dl_objs[dl_nobjs++];
@@ -59,59 +72,69 @@ dl_obj *load_library(char *name) {
     return obj;
 }
 
+// Scan dl_objs to find the one with this name
+static dl_obj *dl_find_loaded(const char *name) {
+    for (int i = 0; i < dl_nobjs; i++) {
+        if (strcmp(dl_objs[i].name, name) == 0) return &dl_objs[i];
+    }
+    
+    return NULL;
+}
+
+// Load every DT_NEEDED library of `obj` that isn't already loaded
+static void dl_load_needed(dl_obj *obj) {
+    my_elf32 *e = &obj->e;
+
+    for (int i = 0; i < e->n_dynamics; i++) {
+        elf32_dynamic *d = &e->e_dynamics[i];
+        if (d->d_tag == DT_NULL)
+            break;
+
+        if (d->d_tag == DT_NEEDED) {
+            char name[13];
+            dl_fat_name(name, e->e_dynstr + d->d_un.d_val, sizeof name);
+            if (dl_find_loaded(name)) {
+                printk("[MY-DL] %s needs %s (already loaded)\n", obj->name, name);
+                continue;
+            }
+            printk("[MY-DL] %s needs %s, loading\n", obj->name, name);
+            load_library(name);
+        }
+    }
+}
+
 void notmain() {
 
     // Extension: all of the below can be done on the pi-side bootloader
 
-    // // Load main executable and libpi.so into memory (part 1)
-    // load_elf(exec_filename, exec_base);
-    // load_elf(libpi_filename, libpi_base);
-
-    // // Verify the ELF headers (part 1)
-    // elf32_header *exec_e_header = (elf32_header *)exec_base;
-    // elf32_header *libpi_e_header = (elf32_header *)libpi_base;
-    // verify_elf(exec_e_header);
-    // verify_elf(libpi_e_header);
-
-    // // Zero-initialize the .bss sections (part 1)
-    // bss_zero_init(exec_e_header);
-    // bss_zero_init(libpi_e_header);
-
-    // // Locate dynamic sections (part 2)
-    // exec_e.e_header = exec_e_header;
-    // exec_e.e_sheaders = (elf32_sheader *)(exec_base + exec_e_header->e_shoff);
-    // exec_e.e_pheaders = (elf32_pheader *)(exec_base + exec_e_header->e_phoff);
-    // libpi_e.e_header = libpi_e_header;
-    // libpi_e.e_sheaders = (elf32_sheader *)(libpi_base + libpi_e_header->e_shoff);
-    // libpi_e.e_pheaders = (elf32_pheader *)(libpi_base + libpi_e_header->e_phoff);
-    // get_dynamic_sections(&exec_e);
-    // get_dynamic_sections(&libpi_e);
-
+    // Load the exe first, manually at 0x0
     dl_obj *exe = load_object(exec_filename, exec_base);
     exec_e = &exe->e;
-    dl_obj *libpi = load_library(libpi_filename);
+
+    // Load all libraries breath-first (newly needed libs added to back, which will then be explored)
+    for (int i = 0; i < dl_nobjs; i++) // dl_nobjs will get incremented by dl_load_needed
+        dl_load_needed(&dl_objs[i]);
+
+    for (int i = 0; i < dl_nobjs; i++)
+        printk("[MY-DL] obj %d: %s @ %x, size %x\n", i, dl_objs[i].name, dl_objs[i].base, dl_objs[i].size);
+
+    // TODO: Stop assuming this is the only lib loaded
+    dl_obj *libpi = dl_find_loaded("LIBPI.SO");
     libpi_e = &libpi->e;
 
     // (Already done for you) Resolve all undefined symbols in the .dynsym section of the 
     // libpi.so. This is needed because some symbols in libpi.so exist in our main executable (e.g., `notmain`),
     // so it must be resolved at load-time.
     load_time_resolve(exec_e, libpi_e);
-    // load_time_resolve(&exe->e, &libpi->e);
 
     // Perform load-time relocation for position-independent code (part 2)
     load_time_relocation(libpi_e);
-    // load_time_relocation(&libpi->e);
 
     // The only step needed for true runtime dynamic linking: fill in .got.plt[2] with the 
     //  address of the dynamic linker entry function.
     // This is the address that the program will jump to when it reaches an unresolved symbol.
     exec_e->e_pltgot[2] = (uint32_t)dynamic_linker_entry_asm;
-    // exe->e.e_pltgot[2] = (uint32_t)dynamic_linker_entry_asm;
-
-    for (int i = 0; i < dl_nobjs; i++)
-        printk("[MY-DL] obj %d: %s @ %x, size %x\n", i, dl_objs[i].name, dl_objs[i].base, dl_objs[i].size);
 
     // Jump to the entry point of the ELF file. The dynamic linking will automatically happen!
-    // jump_to_elf_entry(exec_e_header);
     jump_to_elf_entry(exe->e.e_header);
 }

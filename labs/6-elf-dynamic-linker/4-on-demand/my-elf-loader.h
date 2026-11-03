@@ -21,6 +21,8 @@
     ========================
 */
 
+#define PT_LOAD 1
+
 #define E_NIDENT 16
 #define SHT_DYNAMIC 6
 #define SHT_REL 9

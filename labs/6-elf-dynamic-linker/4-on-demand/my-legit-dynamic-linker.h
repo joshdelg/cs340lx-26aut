@@ -38,5 +38,8 @@ typedef struct {
 } dl_obj;
 
 #define DL_MAX_OBJS 64
+#define DL_LIB_REGION_START 0x10000000
+#define DL_LIB_REGION_END   0x20000000   // peripherals start here (see the README memory map)
+#define DL_LIB_ALIGN        0x100000     // 1MB: matches a VM section, in case you do extension C
 
 #endif

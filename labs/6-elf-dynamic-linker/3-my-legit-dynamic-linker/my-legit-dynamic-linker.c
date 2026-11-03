@@ -34,8 +34,8 @@ uint32_t dynamic_linker_entry_c(uint32_t *gotplt, uint32_t *gotplt_entry) {
     // asm volatile("mov %0, sp" : "=r"(sp));
 
     // Useful for debugging: print out the values of gotplt and gotplt_entry
-    // printk("[MY-DL] gotplt: %x, gotplt_entry: %x\n", gotplt, gotplt_entry);
-    // printk("[MY-DL] *gotplt: %x, *gotplt_entry: %x\n", *gotplt, *gotplt_entry);
+    printk("[MY-DL] gotplt: %x, gotplt_entry: %x\n", gotplt, gotplt_entry);
+    printk("[MY-DL] *gotplt: %x, *gotplt_entry: %x\n", *gotplt, *gotplt_entry);
 
     // The first entry of .got.plt is the address to .dynamic section
     // elf32_dynamic *e_dynamics = (elf32_dynamic *)(*(gotplt - 2));
@@ -48,15 +48,27 @@ uint32_t dynamic_linker_entry_c(uint32_t *gotplt, uint32_t *gotplt_entry) {
     //   4. Call `resolve_symbol` function (from part 2) to retrieve the symbol address.
     //   5. Fill in `GOT[i+3]` with symbol address
     //   6. Return the symbol address
-    todo("Do dynamic linking");
-    // char *symbol_name = ???;
-    // printk("[MY-DL] Dynamic linker: Unresolved symbol encountered: <%s>. Dynamic linker invoked.\n", symbol_name);
+    
+    // Calculate the index of the symbol in the .rel.dyn section
+    uint32_t i = ((uint32_t) (gotplt_entry) / 4 - (uint32_t) (gotplt) / 4) - 1;
+
+    // // Print out each .rel.dyn entry
+    // for(int i = 0; i < 1000; i++) {
+    //     char *symbol_name = exec_e.e_dynstr + exec_e.e_dynsym[exec_e.e_reldyn[i].r_info >> 8].st_name;
+    //     printk("[MY-DL] .rel.dyn[%d]: %s\n", i, symbol_name);
+    // }
+    // return 0;
+
+    uint32_t dynsym_index = (uint32_t) (exec_e.e_reldyn[i].r_info >> 8);
+    char *symbol_name = exec_e.e_dynstr + exec_e.e_dynsym[dynsym_index].st_name;
+
+    printk("[MY-DL] Dynamic linker: Unresolved symbol encountered: <%s>. Dynamic linker invoked.\n", symbol_name);
 
     // Try to resolve the symbol and fill in the got table entry
-    // uint32_t symbol_addr = resolve_symbol(&libpi_e, symbol_name);
-    // *gotplt_entry = symbol_addr;
-    // printk("[MY-DL] Dynamic linker: Resolved symbol %s to %x\n", symbol_name, symbol_addr);
+    uint32_t symbol_addr = resolve_symbol(&libpi_e, symbol_name);
+    *gotplt_entry = symbol_addr;
+    printk("[MY-DL] Dynamic linker: Resolved symbol %s to %x\n", symbol_name, symbol_addr);
 
-    // return symbol_addr; // the rest should be handled by asm
-    return 0;
+    return symbol_addr; // the rest should be handled by asm
+    // return 0;
 }

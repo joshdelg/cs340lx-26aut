@@ -4,14 +4,14 @@
 #include "my-elf-loader.h"
 
 // Load the ELF file from the SD card to memory, starting at address `base`
-uint32_t load_elf(char *filename, char *base) {
+// Returns the file size, or -1 failed
+int load_elf(char *filename, char *base) {
     int size = my_fat32_read(filename, base);
     if (size < 0)
-        panic("[MY-ELF] Couldn't read ELF file from the FAT32 filesystem\n");
-    else
-        printk("[MY-ELF] ELF file loaded into memory (%x - %x)\n", base, base + size);
+        return -1;
 
-    return (uint32_t)size;
+    printk("[MY-ELF] ELF file loaded into memory (%x - %x)\n", base, base + size);
+    return size;
 }
 
 // Verify the ELF header. We'll do only a few checks as an exercise.

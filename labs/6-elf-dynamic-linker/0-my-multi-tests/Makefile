@@ -26,7 +26,7 @@ INCLUDES = -I. \
 LIB_LDFLAGS = -shared --strip-debug -T $(LIBPI)/memmap -L. -L$(LIBPI) -rpath-link .
 EXE_LDFLAGS = --strip-debug -T memmap -L. -L$(LIBPI) -rpath-link .
 
-all: libbar.so libfoo.so multi.elf
+all: libbar.so libfoo.so libwrap.so multi.elf
 
 libbar.so: $(OBJDIR)/bar.o
 	$(LD) $(LIB_LDFLAGS) $< -lpi -o $@
@@ -38,13 +38,19 @@ libfoo.so: $(OBJDIR)/foo.o libbar.so
 	$(READELF) -a $@ > $@.readelf
 	$(OBJDUMP) -D $@ > $@.list
 
+# Not linked into anything: only loaded when preloaded
+libwrap.so: $(OBJDIR)/wrap.o
+	$(LD) $(LIB_LDFLAGS) $< -o $@
+	$(READELF) -a $@ > $@.readelf
+	$(OBJDUMP) -D $@ > $@.list
+
 multi.elf: $(OBJDIR)/multi.o $(OBJDIR)/start.o libfoo.so
 	$(LD) $(EXE_LDFLAGS) $(OBJDIR)/multi.o $(OBJDIR)/start.o -lfoo -lpi -o $@
 	$(READELF) -a $@ > $@.readelf
 	$(OBJDUMP) -D $@ > $@.list
 
 # Library objects must be position-independent
-$(OBJDIR)/bar.o $(OBJDIR)/foo.o: $(OBJDIR)/%.o: %.c
+$(OBJDIR)/bar.o $(OBJDIR)/foo.o $(OBJDIR)/wrap.o: $(OBJDIR)/%.o: %.c
 	@mkdir -p $(OBJDIR)
 	$(CC) $(CFLAGS) -fPIC $(INCLUDES) -c $< -o $@
 

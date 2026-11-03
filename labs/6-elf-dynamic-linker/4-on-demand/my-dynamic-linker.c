@@ -92,11 +92,26 @@ void load_time_relocation(my_elf32 *e) {
                 } else if (rel_type == R_ARM_GLOB_DAT || rel_type == R_ARM_JUMP_SLOT || rel_type == R_ARM_ABS32) { // we should resolve the symbol in .got section
                     elf32_sym symtab_entry = e->e_dynsym[symtab_idx];
 
-                    uint32_t symbol_addr = symtab_entry.st_value;
-                    if (symtab_entry.st_shndx != SHN_UNDEF)
-                        // Originally resolved symbol (ex. NOT notmain)
-                        symbol_addr += (uint32_t)elf32_base;
-                    *(uint32_t *)entry_addr = symbol_addr;
+                    // @joshdelg Before, we ran `resolve_imports` first which for all UNDEF symbols, 
+                    // would resolve and write the absolute address to `st_value`
+                    // Thus, here, UNDEF were ready to go, while !UNDEF symbols needed the base added (st_value already had addr of local definition)
+                    // -> This amounted to assuming we would just use the defined version, instead of checking if it could be overridden
+
+                    // Now, we want to support overridding symbols. If a symbol can be overridden, we
+                    // want to search for it in dl_objs order (using dl_lookup). An added benefit is
+                    // now that we're looking up the symbols during relocation, we no longer need the
+                    // earlier `resolve_imports` stage.
+
+                    // What address for symbol? If can't be overridden, use the existing local def addr, otherwise lookup
+                    uint8_t local_symbol = (symtab_entry.st_info >> 4) == STB_LOCAL;
+                    char* name = e->e_dynstr + symtab_entry.st_name;
+                    uint32_t symbol_addr = local_symbol ? (uint32_t)elf32_base + symtab_entry.st_value : dl_lookup(name);
+                    
+                    if(rel_type == R_ARM_ABS32) { // Keep the addend already at the entry addr
+                        *(uint32_t*)entry_addr += symbol_addr;
+                    } else { // Just replace
+                        *(uint32_t *)entry_addr = symbol_addr;
+                    }
 
                     // Sanity check
                     // printk("[MY-DL] %d-%d: %s, resolved to %x\n", j, symtab_idx, e->e_dynstr + symtab_entry.st_name, symbol_addr);
@@ -200,100 +215,4 @@ uint32_t dl_lookup(char* name) {
     }
 
     panic("[MY-DL] Unable to find symbol %s in any obj\n", name);
-}
-
-// Given a symbol name and an elf file, find the address of the symbol in the
-// shared library loaded into memory.
-// A super fun extension: use the .hash section to find the symbol in O(1) time! -- done!
-uint32_t resolve_symbol(my_elf32 *e, char *symbol_name) {
-    printk("[MY-DL] Resolving symbol <%s>...\n", symbol_name);
-    char *elf32_base = (char *)e->e_header;
-    uint32_t symbol_addr = 0;
-
-    // printk("Using %x as the base address\n", elf32_base);
-
-
-    // @joshdelg Extension (2-22) use .hash table entries
-
-    // Fetch number of buckets and chains from .hash section
-    uint32_t nbucket = e->e_hash[0];
-    uint32_t nchain = e->e_hash[1];
-
-    printk("[MY-DL] Number of buckets: %d, number of chains: %d\n", nbucket, nchain);
-
-    // Compute hash value and bucket index
-    uint32_t hash = compute_elf_hash(symbol_name);
-    printk("[MY-DL] Hash: %d\n", hash);
-    uint32_t bucket_idx = __aeabi_uidivmod(hash, nbucket);
-    printk("[MY-DL] Bucket index: %d\n", bucket_idx);
-    uint32_t *bucket = e->e_hash + 2;
-    uint32_t *chain = e->e_hash + 2 + nbucket;
-    uint32_t chain_idx = bucket[bucket_idx];
-    // elf32_sym *symtab_entry = (elf32_sym *) ((uint32_t)(e->e_dynsym) + chain_idx * sizeof(elf32_sym));
-    printk("[MY-DL] Chain index: %d\n", chain_idx);
-
-    // Iterate through chain and print indices
-    elf32_sym *syms = e->e_dynsym;
-    // for(int i = 0; i < nchain; i++) {
-    //     printk("[MY-DL] Chain index %d: dynsym index %d -- ", i, chain[i]);
-    //     elf32_sym *symtab_entry = &syms[chain[i]];
-    //     printk("[MY-DL] Symbol name: %x, %s\n", symtab_entry->st_name, e->e_dynstr + symtab_entry->st_name);
-    //     // printk("[MY-DL] Symbol name: %x, %s\n", e->e_dynstr + symtab_entry->st_name, e->e_dynstr + symtab_entry->st_name);
-    // }
-
-    // // "Follow the chain links"
-    elf32_sym *symtab_entry = &syms[chain_idx];
-    while(chain_idx != 0) {
-        char *sym_name_chain = e->e_dynstr + symtab_entry->st_name;
-        printk("[MY-DL] Symbol name (chain): %s\n", sym_name_chain);
-
-        if (strcmp(sym_name_chain, symbol_name) == 0) {
-            symbol_addr = (uint32_t) (elf32_base + symtab_entry->st_value);
-            printk("[MY-DL] Found symbol (chain): %s at %x\n", symbol_name, symbol_addr);
-            return symbol_addr;
-        }
-        // If was incorrect, follow the link
-        chain_idx = chain[chain_idx];
-        symtab_entry = &syms[chain_idx];
-        printk("[MY-DL] New chain index: %d\n", chain_idx);
-    }
-
-
-    printk("[MY-DL] Couldn't find symbol: %s, trying brute iteration\n", symbol_name);
-    
-    // Refer to 1-17 for the symbol entry format and 1-16 for the string table format
-    // Go through every entry in .dynsym section, retrieve its index in the .dynstr section, 
-    // get the symbol name, compare it with symbol_name, and use st_value to retrieve its address
-    // todo("Find the symbol using the .dynsym and .dynstr sections and fill in the symbol_addr");
-    
-    // Find number of dynsym and dynstr entries by
-    // matching address to section header table entries
-    elf32_header *e_header = (elf32_header *)elf32_base;
-    elf32_sheader *e_sheaders = (elf32_sheader *)(elf32_base + e_header->e_shoff);
-    
-    uint32_t n_dynsym = 0;
-    for(int i = 0; i < e_header->e_shnum; i++) {
-        if((uint32_t) (e_sheaders[i].sh_offset + elf32_base) == (uint32_t) e->e_dynsym) {
-            n_dynsym = e_sheaders[i].sh_size / sizeof(elf32_sym);
-        }
-    }
-
-    elf32_sym *e_syms = e->e_dynsym;
-    for(int i = 0; i < n_dynsym; i++) {
-        // output("Symbol table entry %d: gives index %d into string table\n", i, e->e_dynstr + e_syms[i].st_name);
-        char *sym_name = e->e_dynstr + e_syms[i].st_name;
-        // output("Considering symbol: %s (index %d)\n", sym_name, i);
-        if(strcmp(sym_name, symbol_name) == 0) {
-            printk("[MY-DL] Found symbol: %s at %x (dynsym index %d)\n", symbol_name, e_syms[i].st_value, i);
-            symbol_addr = (uint32_t) (elf32_base + e_syms[i].st_value);
-            break;
-        }
-    }
-
-    if (symbol_addr == 0)
-        panic("[MY-DL] Couldn't find symbol: %s\n", symbol_name);
-    else
-        printk("[MY-DL] Found symbol: %s at %x\n", symbol_name, symbol_addr);
-
-    return symbol_addr;
 }

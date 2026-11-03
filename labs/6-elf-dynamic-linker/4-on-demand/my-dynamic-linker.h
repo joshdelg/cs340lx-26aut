@@ -17,11 +17,7 @@ void get_dynamic_sections(my_elf32 *e);
 // symbol addresses at runtime.
 void load_time_relocation(my_elf32 *e);
 
-// Given a symbol name and an elf file, find the address of the symbol in the
-// shared library loaded into memory.
-// A super fun extension: use the .hash section to find the symbol in O(1) time!
-uint32_t resolve_symbol(my_elf32 *e, char *symbol_name);
-
+// Given a symbol name and an elf file, find the address of the symbol in the first dl_obj
 uint32_t dl_lookup(char* name);
 
 #endif

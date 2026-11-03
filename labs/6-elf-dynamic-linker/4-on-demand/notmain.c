@@ -7,8 +7,8 @@
 // static char *exec_filename = "0-DYN.ELF";
 // static char *exec_filename = "1-DYN.ELF";
 // static char *exec_filename = "2-DYN.ELF";
-static char *exec_filename = "3-DYN.ELF";
-// static char *exec_filename = "MULTI.ELF";
+// static char *exec_filename = "3-DYN.ELF";
+static char *exec_filename = "MULTI.ELF";
 static char *exec_base = (char *)0x0;
 
 static char *libpi_filename = "LIBPI.SO";
@@ -21,6 +21,9 @@ static char *dl_next_base = (char *)DL_LIB_REGION_START; // exec is always at 0
 static uint32_t align_up(uint32_t x, uint32_t a) {
     return (x + a - 1) & ~(a - 1);
 }
+
+// @joshdelg Extension B++: allow explicit LD_PRELOAD
+static char *dl_preload[] = { "LIBWRAP.SO", NULL};
 
 // Convert to uppercase and ensure length
 static void dl_fat_name(char *dst, const char *src, unsigned n) {
@@ -110,6 +113,12 @@ void notmain() {
     // Load the exe first, manually at 0x0
     dl_obj *exe = load_object(exec_filename, exec_base);
 
+    // Force-load the preload libs before any discovered libraries
+    // so dl_lookup chooses these versions
+    for(char **p = dl_preload; *p; p++) {
+        load_library(*p);
+    }
+
     // Load all libraries breath-first (newly needed libs added to back, which will then be explored)
     for (int i = 0; i < dl_nobjs; i++) // dl_nobjs will get incremented by dl_load_needed
         dl_load_needed(&dl_objs[i]);
@@ -133,6 +142,8 @@ void notmain() {
     // so lazy resolver can find out who called it
     // Also do this for all libs
     for(unsigned i = 0; i < dl_nobjs; i++) {
+        if(!dl_objs[i].e.e_pltgot) continue; // No PLT so resolver will never be invoked anyway
+
         dl_objs[i].e.e_pltgot[1] = (uint32_t)&dl_objs[i];
         dl_objs[i].e.e_pltgot[2] = (uint32_t)dynamic_linker_entry_asm;
     }

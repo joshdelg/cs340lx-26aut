@@ -55,8 +55,9 @@ void get_dynamic_sections(my_elf32 *e) {
         }
     }
 
-    if (e->e_hash == NULL || e->e_dynsym == NULL || e->e_dynstr == NULL || e->e_pltgot == NULL || e->e_reldyn == NULL)
-        panic("[MY-DL] Couldn't find .hash, .dynsym, .dynstr, .pltgot, or .rel.dyn section\n");
+    // if (e->e_hash == NULL || e->e_dynsym == NULL || e->e_dynstr == NULL || e->e_pltgot == NULL || e->e_reldyn == NULL)
+    if (e->e_hash == NULL || e->e_dynsym == NULL || e->e_dynstr == NULL)
+        panic("[MY-DL] Couldn't find .hash, .dynsym, .dynstr\n");
     else
         printk("[MY-DL] Found dynamic sections: .hash: %x, .dynsym: %x, .dynstr: %x, .got.plt: %x, .rel.dyn: %x\n",
             e->e_hash, e->e_dynsym, e->e_dynstr, e->e_pltgot, e->e_reldyn);
@@ -190,7 +191,7 @@ uint32_t dl_find_in_obj(dl_obj *obj, char *name) {
 
             if (strcmp(sym_name_chain, name) == 0) {
                 symbol_addr = (uint32_t) (elf32_base + symtab_entry->st_value);
-                printk("[MY-DL] Found symbol (chain): %s at %x\n", name, symbol_addr);
+                // printk("[MY-DL] Found symbol (chain): %s at %x\n", name, symbol_addr);
                 return symbol_addr;
             }
         }

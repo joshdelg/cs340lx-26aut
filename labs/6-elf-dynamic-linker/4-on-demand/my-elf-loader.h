@@ -145,7 +145,8 @@ typedef struct {
 
 
 // Load the ELF file from the SD card to memory, starting at address `base`
-uint32_t load_elf(char *filename, char *base);
+// Returns the file size, or -1 if the file couldn't be read
+int load_elf(char *filename, char *base);
 
 // Verify the ELF header. We'll do only a few checks as an exercise.
 // Refer to 1-3 of ELF.pdf for the ELF header format

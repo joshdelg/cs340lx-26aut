@@ -33,6 +33,9 @@ typedef struct {
     uint32_t size;
 } dl_obj;
 
+// Address of `name` if `obj` defines it (skips symbols it only imports), else 0
+uint32_t dl_find_in_obj(dl_obj *obj, char *name);
+
 #define DL_MAX_OBJS 64
 #define DL_LIB_REGION_START 0x10000000
 #define DL_LIB_REGION_END   0x20000000   // peripherals start here (see the README memory map)

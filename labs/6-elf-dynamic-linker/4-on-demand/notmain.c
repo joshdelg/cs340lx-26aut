@@ -2,13 +2,15 @@
 #include "my-elf-loader.h"
 #include "my-dynamic-linker.h"
 #include "my-legit-dynamic-linker.h"
+#include "dlfcn.h"
 
 // Change this to the filename of the dynamically linked ELF file you want to load
 // static char *exec_filename = "0-DYN.ELF";
 // static char *exec_filename = "1-DYN.ELF";
 // static char *exec_filename = "2-DYN.ELF";
 // static char *exec_filename = "3-DYN.ELF";
-static char *exec_filename = "MULTI.ELF";
+// static char *exec_filename = "MULTI.ELF";
+static char *exec_filename = "LEDS.ELF";
 static char *exec_base = (char *)0x0;
 
 static char *libpi_filename = "LIBPI.SO";
@@ -38,11 +40,18 @@ static void dl_fat_name(char *dst, const char *src, unsigned n) {
         panic("[MY-DL] library name too long for 8.3: %s\n", src);
 }
 
+// Returns NULL if the file couldn't be read
 dl_obj *load_object(char* name, char* base) {
     assert(dl_nobjs < DL_MAX_OBJS);
-    dl_obj *obj = &dl_objs[dl_nobjs++];
 
-    uint32_t size = load_elf(name, base);
+    // Read before taking a slot, so a missing file doesn't leave an empty entry in dl_objs
+    int file_size = load_elf(name, base);
+    if (file_size < 0)
+        return NULL;
+
+    dl_obj *obj = &dl_objs[dl_nobjs++];
+    memset(obj, 0, sizeof *obj);
+    uint32_t size = file_size;
 
     elf32_header *object_header = (elf32_header *)base;
     verify_elf(object_header);
@@ -67,9 +76,11 @@ dl_obj *load_object(char* name, char* base) {
     return obj;
 }
 
-// Load the object and position it in memory
+// Load the object and position it in memory. Returns NULL if the file couldn't be read
 dl_obj *load_library(char *name) {
     dl_obj *obj = load_object(name, dl_next_base);
+    if (!obj)
+        return NULL;
     dl_next_base = (char *)align_up((uint32_t)obj->base + obj->size, DL_LIB_ALIGN);
     assert((uint32_t)dl_next_base <= DL_LIB_REGION_END);
     return obj;
@@ -101,36 +112,28 @@ static void dl_load_needed(dl_obj *obj) {
                 continue;
             }
             printk("[MY-DL] %s needs %s, loading\n", obj->name, name);
-            load_library(name);
+            if (!load_library(name))
+                panic("[MY-DL] %s needs %s, but it isn't on the SD card\n", obj->name, name);
         }
     }
 }
 
-void notmain() {
-
-    // Extension: all of the below can be done on the pi-side bootloader
-
-    // Load the exe first, manually at 0x0
-    dl_obj *exe = load_object(exec_filename, exec_base);
-
-    // Force-load the preload libs before any discovered libraries
-    // so dl_lookup chooses these versions
-    for(char **p = dl_preload; *p; p++) {
-        load_library(*p);
-    }
-
-    // Load all libraries breath-first (newly needed libs added to back, which will then be explored)
-    for (int i = 0; i < dl_nobjs; i++) // dl_nobjs will get incremented by dl_load_needed
+// Link every obj in [first, dl_njobs): load DT_NEEDD libs (append to dl_objs), relocate, and set up GOT[1]/GOT[2]
+// Pass first so that libraries that need to be linked later (dlopen) don't touch existing ones
+static void dl_link_from(int first) {
+    // Load all libraries breadth-first (newly needed libs added to back, which will then be explored)
+    for (int i = first; i < dl_nobjs; i++) // dl_nobjs will get incremented by dl_load_needed
         dl_load_needed(&dl_objs[i]);
 
-    for (int i = 0; i < dl_nobjs; i++)
+    for (int i = first; i < dl_nobjs; i++)
         printk("[MY-DL] obj %d: %s @ %x, size %x\n", i, dl_objs[i].name, dl_objs[i].base, dl_objs[i].size);
 
     // @joshdelg For each lib, process the relocations:
     // This has been upgraded from the old version. Instead of a separate `resolve_imports` step where,
     // for every UNDEF symbol in libpi, we hardcode resolving it from the exec ELF and writing its addr,
     // we instead dl_lookup any UNDEF or overridable symbol at relocation time.
-    for(unsigned i = 1; i < dl_nobjs; i++) {
+    for(unsigned i = first; i < dl_nobjs; i++) {
+        if(i == 0) continue; // Skip executable -- not position independent code
         load_time_relocation(&dl_objs[i].e);
     }
 
@@ -141,12 +144,77 @@ void notmain() {
     // @joshdelg -- fill in .got.plt[1] (reserved for loader) with the address of the record
     // so lazy resolver can find out who called it
     // Also do this for all libs
-    for(unsigned i = 0; i < dl_nobjs; i++) {
+    for(unsigned i = first; i < dl_nobjs; i++) {
         if(!dl_objs[i].e.e_pltgot) continue; // No PLT so resolver will never be invoked anyway
 
         dl_objs[i].e.e_pltgot[1] = (uint32_t)&dl_objs[i];
         dl_objs[i].e.e_pltgot[2] = (uint32_t)dynamic_linker_entry_asm;
     }
+}
+
+// ------ dlfc.h Impl -------
+static void *dl_dlopen(const char *file, int flags) {
+    char name[13];
+    dl_fat_name(name, file, sizeof name); // Must capitalize for FAT32
+
+    dl_obj *obj = dl_find_loaded(name);
+    if (obj) return obj; // Already loaded -> give same handler
+
+    // Load library and any deps starting at first, and link from there
+    int first = dl_nobjs;
+    obj = load_library(name);
+    if (!obj) {
+        printk("Requested obj %s not found.\n", name);
+        return NULL;
+    }
+
+    dl_link_from(first);
+    return obj;
+}
+
+static void *dl_dlsym(void *handle, const char *sym) {
+    if (handle == RTLD_DEFAULT) // Use default/global lookup order
+        return (void *)dl_lookup_or_null((char *)sym);
+    if (handle == RTLD_NEXT) // TODO: next definition after the caller
+        return NULL;
+    return (void *)dl_find_in_obj(handle, (char *)sym);
+}
+
+static int dl_dlclose(void *handle) { return 0; }   // no unloading yet
+static char *dl_dlerror(void) { return NULL; }      // no error tracking yet
+
+// SAD: Manually enumerate the builtins until we can make this an SO
+static struct { const char *name; void *addr; } dl_builtins[] = {
+    { "dlopen",  dl_dlopen },
+    { "dlsym",   dl_dlsym },
+    { "dlclose", dl_dlclose },
+    { "dlerror", dl_dlerror },
+};
+
+uint32_t dl_builtin_lookup(char *name) {
+    for (unsigned i = 0; i < sizeof dl_builtins / sizeof dl_builtins[0]; i++)
+        if (strcmp(dl_builtins[i].name, name) == 0)
+            return (uint32_t)dl_builtins[i].addr;
+    return 0;
+}
+
+void notmain() {
+
+    // Extension: all of the below can be done on the pi-side bootloader
+
+    // Load the exe first, manually at 0x0
+    dl_obj *exe = load_object(exec_filename, exec_base);
+    if (!exe)
+        panic("[MY-DL] Couldn't read executable %s\n", exec_filename);
+
+    // Force-load the preload libs before any discovered libraries
+    // so dl_lookup chooses these versions
+    for(char **p = dl_preload; *p; p++) {
+        if (!load_library(*p)) // missing preload is skipped, not fatal
+            printk("[MY-DL] preload %s not found, skipping\n", *p);
+    }
+
+    dl_link_from(0);
 
     // Jump to the entry point of the ELF file. The dynamic linking will automatically happen!
     jump_to_elf_entry(exe->e.e_header);

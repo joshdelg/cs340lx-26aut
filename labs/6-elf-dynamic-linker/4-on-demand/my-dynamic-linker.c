@@ -21,7 +21,6 @@ void get_dynamic_sections(my_elf32 *e) {
     // Refer to 1-10, 2-11, 2-12, and 2-13
     // Use the `d_tag` field to identify these sections in the dynamic section.
     // The section addresses are stored in the `d_un.d_ptr` field.
-    // todo("Locate .hash, .dynsym, .dynstr, .pltgot, and .rel.dyn sections through the .dynamic section");
 
     for(int i = 0; i < e_header->e_shnum; i++) {
         if(e_sheaders[i].sh_type == SHT_DYNAMIC) {
@@ -206,7 +205,12 @@ uint32_t dl_find_in_obj(dl_obj *obj, char *name) {
 }
 
 // Search for `name` through *all* objs in load order
-uint32_t dl_lookup(char* name) {
+uint32_t dl_lookup_or_null(char* name) {
+    // Sadness: manually lookup in "dl builtins" (i.e. dlopen/dlsym) because loader isn't shared object yet
+    uint32_t addr = dl_builtin_lookup(name);
+    if(addr) return addr;
+
+    // Normal lookup: search through objs in order
     for(unsigned i = 0; i < dl_nobjs; i++) {
         uint32_t addr = dl_find_in_obj(&dl_objs[i], name);
         if(addr) {
@@ -215,5 +219,12 @@ uint32_t dl_lookup(char* name) {
         }
     }
 
-    panic("[MY-DL] Unable to find symbol %s in any obj\n", name);
+    return 0;
+}
+
+uint32_t dl_lookup(char* name) {
+    uint32_t addr = dl_lookup_or_null(name);
+    if(!addr) panic("[MY-DL] Unable to find symbol %s in any obj\n", name);
+
+    return addr;
 }

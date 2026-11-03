@@ -4,10 +4,6 @@
 #include "rpi.h"
 #include "my-dynamic-linker.h"
 
-// Resolve all undefined symbols in the .dynsym section of the given ELF32 file at load-time.
-// This is needed because some symbols in a dynamic library might exist in our main executable (e.g., `notmain`)
-void load_time_resolve(my_elf32 *exec_e, my_elf32 *dyn_e);
-
 // - This is the entry point for the dynamic linker
 // - The address of this label is stored in the third entry of .got section at load-time
 // - During runtime, when a program reaches an unresolved symbol, it will eventually 

@@ -1,27 +1,6 @@
 #include "rpi.h"
 #include "my-legit-dynamic-linker.h"
 
-// From notmain.c
-extern my_elf32 *exec_e;
-extern my_elf32 *libpi_e;
-
-// Resolve all undefined symbols in the .dynsym section of the given ELF32 file at load-time.
-// This is needed because some symbols in a dynamic library might exist in our main executable (e.g., `notmain`)
-void load_time_resolve(my_elf32 *exec_e, my_elf32 *dyn_e) {
-    printk("[MY-DL] Resolving undefined symbols in shared library...\n");
-
-    // Best-effort attempt to resolve undefined symbols in the .dynsym section
-    uint32_t n_symbols = dyn_e->e_hash[1]; // this is equivalent to the number of symbols in .dynsym
-    for (int i = 0; i < n_symbols; i++) {
-        if (dyn_e->e_dynsym[i].st_shndx == SHN_UNDEF && dyn_e->e_dynsym[i].st_name) { // symbol is undefined
-            char *symbol_name = dyn_e->e_dynstr + dyn_e->e_dynsym[i].st_name;
-            // printk("[MY-DL] Undefined symbol: %s\n", symbol_name);
-            // printk("[MY-DL] resolved addr: %x\n", resolve_symbol(&main_elf, symbol_name));
-            dyn_e->e_dynsym[i].st_value = resolve_symbol(exec_e, symbol_name);
-        }
-    }
-}
-
 // `load_time_resolve` replacement that searches all objs.
 // 1) Finds all UNDEF symbols in an `obj`
 // 2) Resolves them by searching through *all* objs (not hardcoding search for libpi symbols in exec)
@@ -70,19 +49,23 @@ uint32_t dynamic_linker_entry_c(uint32_t *gotplt, uint32_t *gotplt_entry) {
     //   4. Call `resolve_symbol` function (from part 2) to retrieve the symbol address.
     //   5. Fill in `GOT[i+3]` with symbol address
     //   6. Return the symbol address
+
+    // @joshdelg: GOT[1] now has ptr to dl_obj (which is not necessarily the exec now!)
+    dl_obj *obj = (dl_obj*)gotplt[-1];
+    my_elf32 *e = &obj->e;
     
     // Calculate the index of the symbol in the .rel.dyn section
-    uint32_t i = ((uint32_t) (gotplt_entry) / 4 - (uint32_t) (gotplt) / 4) - 1;
+    uint32_t i = gotplt_entry - gotplt - 1;
 
-    uint32_t dynsym_index = (uint32_t) (exec_e->e_reldyn[i].r_info >> 8);
-    char *symbol_name = exec_e->e_dynstr + exec_e->e_dynsym[dynsym_index].st_name;
+    uint32_t dynsym_index = (uint32_t) (e->e_reldyn[i].r_info >> 8);
+    char *symbol_name = e->e_dynstr + e->e_dynsym[dynsym_index].st_name;
 
     printk("[MY-DL] Dynamic linker: Unresolved symbol encountered: <%s>. Dynamic linker invoked.\n", symbol_name);
 
-    // Try to resolve the symbol and fill in the got table entry
-    uint32_t symbol_addr = resolve_symbol(libpi_e, symbol_name);
+    // Try to resolve the symbol and fill in the got table entry (now use dl_lookup)
+    uint32_t symbol_addr = dl_lookup(symbol_name);
     *gotplt_entry = symbol_addr;
-    printk("[MY-DL] Dynamic linker: Resolved symbol %s to %x\n", symbol_name, symbol_addr);
+    printk("[MY-DL] Dynamic linker: Resolved symbol %s from obj %s to %x\n", symbol_name, obj->name, symbol_addr);
 
     return symbol_addr; // the rest should be handled by asm
     // return 0;

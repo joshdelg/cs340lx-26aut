@@ -2,7 +2,10 @@
 #include "my-legit-dynamic-linker.h"
 
 // Change this to the filename of the dynamically linked ELF file you want to load
-static char *exec_filename = "0-DYN.ELF";
+// static char *exec_filename = "0-DYN.ELF";
+// static char *exec_filename = "1-DYN.ELF";
+// static char *exec_filename = "2-DYN.ELF";
+static char *exec_filename = "3-DYN.ELF";
 static char *exec_base = (char *)0x0;
 my_elf32 exec_e;
 

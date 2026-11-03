@@ -1,6 +1,7 @@
 #include "rpi.h"
-#include "my-legit-dynamic-linker.h"
 #include "my-elf-loader.h"
+#include "my-dynamic-linker.h"
+#include "my-legit-dynamic-linker.h"
 
 // Change this to the filename of the dynamically linked ELF file you want to load
 // static char *exec_filename = "0-DYN.ELF";
@@ -130,9 +131,11 @@ void notmain() {
     // // Perform load-time relocation for position-independent code (part 2)
     // load_time_relocation(libpi_e);
 
-    printk("notmain -> %x\n", dl_lookup("notmain"));   // in the exe: matches what part 3 printed (0x5xx)
-    printk("printk  -> %x\n", dl_lookup("printk"));    // 0x1000xxxx: exe imports it, so it must skip to libpi
-    printk("bogus   -> %x\n", dl_lookup("nope_xyz"));  // 0
+    // For each lib 1) resolve its imported symbols 2) relocate everything
+    for(unsigned i = 1; i < dl_nobjs; i++) {
+        dl_resolve_imports(&dl_objs[i]);
+        load_time_relocation(&dl_objs[i].e);
+    }
 
 
     // The only step needed for true runtime dynamic linking: fill in .got.plt[2] with the 

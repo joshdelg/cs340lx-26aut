@@ -7,12 +7,11 @@
 // static char *exec_filename = "0-DYN.ELF";
 // static char *exec_filename = "1-DYN.ELF";
 // static char *exec_filename = "2-DYN.ELF";
-static char *exec_filename = "3-DYN.ELF";
+// static char *exec_filename = "3-DYN.ELF";
+static char *exec_filename = "MULTI.ELF";
 static char *exec_base = (char *)0x0;
-my_elf32 *exec_e;
 
 static char *libpi_filename = "LIBPI.SO";
-my_elf32 *libpi_e;
 
 // @joshdelg Extension B: Factor per-object steps into general library loader
 dl_obj dl_objs[DL_MAX_OBJS];
@@ -110,7 +109,6 @@ void notmain() {
 
     // Load the exe first, manually at 0x0
     dl_obj *exe = load_object(exec_filename, exec_base);
-    exec_e = &exe->e;
 
     // Load all libraries breath-first (newly needed libs added to back, which will then be explored)
     for (int i = 0; i < dl_nobjs; i++) // dl_nobjs will get incremented by dl_load_needed
@@ -118,18 +116,6 @@ void notmain() {
 
     for (int i = 0; i < dl_nobjs; i++)
         printk("[MY-DL] obj %d: %s @ %x, size %x\n", i, dl_objs[i].name, dl_objs[i].base, dl_objs[i].size);
-
-    // TODO: Stop assuming this is the only lib loaded
-    dl_obj *libpi = dl_find_loaded("LIBPI.SO");
-    libpi_e = &libpi->e;
-
-    // (Already done for you) Resolve all undefined symbols in the .dynsym section of the 
-    // libpi.so. This is needed because some symbols in libpi.so exist in our main executable (e.g., `notmain`),
-    // so it must be resolved at load-time.
-    // load_time_resolve(exec_e, libpi_e);
-
-    // // Perform load-time relocation for position-independent code (part 2)
-    // load_time_relocation(libpi_e);
 
     // For each lib 1) resolve its imported symbols 2) relocate everything
     for(unsigned i = 1; i < dl_nobjs; i++) {
@@ -141,7 +127,13 @@ void notmain() {
     // The only step needed for true runtime dynamic linking: fill in .got.plt[2] with the 
     //  address of the dynamic linker entry function.
     // This is the address that the program will jump to when it reaches an unresolved symbol.
-    exec_e->e_pltgot[2] = (uint32_t)dynamic_linker_entry_asm;
+    // @joshdelg -- fill in .got.plt[1] (reserved for loader) with the address of the record
+    // so lazy resolver can find out who called it
+    // Also do this for all libs
+    for(unsigned i = 0; i < dl_nobjs; i++) {
+        dl_objs[i].e.e_pltgot[1] = (uint32_t)&dl_objs[i];
+        dl_objs[i].e.e_pltgot[2] = (uint32_t)dynamic_linker_entry_asm;
+    }
 
     // Jump to the entry point of the ELF file. The dynamic linking will automatically happen!
     jump_to_elf_entry(exe->e.e_header);

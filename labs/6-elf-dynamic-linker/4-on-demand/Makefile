@@ -8,10 +8,8 @@ HEXDUMP = hexdump
 
 # Directories
 OBJDIR = ./objs
-SRCDIRS += ./ # must list this first, so that notmain.c from this directory is searched first
-SRCDIRS += ../1-my-elf-loader
-SRCDIRS += ../1-my-elf-loader/static-deps
-SRCDIRS += ../2-my-dynamic-linker
+SRCDIRS += ./
+SRCDIRS += ./static-deps
 
 # Flags
 CFLAGS = -D__RPI__ -Og -Wall -nostdlib -nostartfiles -ffreestanding \
@@ -21,19 +19,14 @@ CFLAGS = -D__RPI__ -Og -Wall -nostdlib -nostartfiles -ffreestanding \
 ASFLAGS = -nostdlib -nostartfiles -ffreestanding \
 		  -Wa,--warn -Wa,--fatal-warnings -Wa,-mcpu=arm1176jzf-s -Wa,-march=armv6zk
 INCLUDES = -I. \
+           -I./static-deps \
            -I../0-my-libpi/ \
            -I../0-my-libpi/libc \
-           -I../0-my-libpi/include \
-           -I../1-my-elf-loader \
-           -I../1-my-elf-loader/static-deps \
-		   -I../2-my-dynamic-linker
-LDFLAGS = --strip-debug -T ../1-my-elf-loader/memmap
+           -I../0-my-libpi/include
+LDFLAGS = --strip-debug -T ./memmap
 
 # C/ASM source files
 C_SRCS += $(foreach dir, $(SRCDIRS), $(wildcard $(dir)/*.c))
-C_SRCS := $(filter-out ../1-my-elf-loader/notmain.c, $(C_SRCS))
-C_SRCS := $(filter-out ../1-my-elf-loader/my-elf-loader.c, $(C_SRCS)) # use ./my-elf-loader.c instead
-C_SRCS := $(filter-out ../2-my-dynamic-linker/notmain.c, $(C_SRCS))
 ASM_SRCS += $(foreach dir, $(SRCDIRS), $(wildcard $(dir)/*.S))
 
 # Object files

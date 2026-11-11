@@ -1,5 +1,4 @@
-// flip `mask` in register `reg` n times, `gap` cycles apart, then restore it. The arguments
-// are at RESULT_AREA
+// flip `mask` in register `reg` n times, `gap` cycles apart, then restore it. The arguments are at RESULT_AREA
 #include <stdint.h>
 #include "bt.h"
 

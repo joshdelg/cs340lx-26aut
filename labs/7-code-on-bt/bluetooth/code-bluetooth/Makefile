@@ -1,5 +1,6 @@
 # x-stray-word.c (section 1, note 4) has no .out: make PROGS=x-stray-word.c
-PROGS = 0-test-pl011.c 1-bt-bringup.c 2-test-bt-reset.c 3-test-bt-run.c 4-bt-hello.c
+PROGS = 0-test-pl011.c 1-bt-bringup.c 2-test-bt-reset.c 3-test-bt-run.c 4-bt-hello.c \
+        5-test-rts-wire.c 6-led-blink.c
 COMMON_SRC = bt.c
 RUN ?= 0
 CAN_EMIT ?= 0
@@ -27,3 +28,12 @@ $(BUILD_DIR)/hello_image.h: start.S hello.c hello.ld
 	arm-none-eabi-objcopy -O binary $(BUILD_DIR)/hello.elf $(BUILD_DIR)/hello.raw
 	xxd -i < $(BUILD_DIR)/hello.raw > $@
 $(BUILD_DIR)/4-bt-hello.o: $(BUILD_DIR)/hello_image.h
+
+# @joshdelg BT extensions
+$(BUILD_DIR)/copro_image.h: start.S copro.c bt.h hello.ld
+	@mkdir -p $(BUILD_DIR)
+	arm-none-eabi-gcc -mcpu=cortex-m3 -mthumb -O2 -ffreestanding -nostdlib -Wall -Werror \
+	    -T hello.ld start.S copro.c -o $(BUILD_DIR)/copro.elf
+	arm-none-eabi-objcopy -O binary $(BUILD_DIR)/copro.elf $(BUILD_DIR)/copro.raw
+	xxd -i < $(BUILD_DIR)/copro.raw > $@
+$(BUILD_DIR)/5-test-rts-wire.o $(BUILD_DIR)/6-led-blink.o: $(BUILD_DIR)/copro_image.h

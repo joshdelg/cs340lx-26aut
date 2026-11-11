@@ -1,6 +1,6 @@
-# PROGS = timed-read.c
-PROGS = test.c
-# COMMON_SRC = interrupt-asm.S
+PROGS = timed-read.c
+# PROGS = test.c
+COMMON_SRC = interrupt-asm.S
 
 # if you need to override the install
 BOOTLOADER = my-install

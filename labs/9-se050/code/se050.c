@@ -53,10 +53,13 @@ enum
     INS_TRANSIENT = 0x80,
     // 4.3.4 P1
     P1_DEFAULT = 0x00,
+    P1_EC = 0x01,
+    P1_KEY_PAIR = 0x60,
     P1_HMAC = 0x05,
     P1_MAC = 0x0D,
     // 4.3.5 P2
     P2_DEFAULT = 0x00,
+    P2_DH = 0x0F,
     P2_DELETE_OBJECT = 0x28,
     P2_GENERATE_ONESHOT = 0x45,
     P2_VALIDATE_ONESHOT = 0x46,
@@ -68,6 +71,8 @@ enum
     TAG_5 = 0x45,
     // 4.3.18 MACAlgo
     MAC_HMAC_SHA1 = 0x18,
+    // 4.3.19 ECCurve
+    NIST_P256 = 0x03,
 
     OBJECT_ID_SIZE = 4,
     HMAC_SHA1_LEN = 20,
@@ -224,6 +229,25 @@ int rapdu_decode(uint8_t *rapdu_frame, int len, uint8_t **body, uint16_t *status
     return len - 2;
 }
 
+// @joshdelg -- a helper for the common operation of sending an APDU, waiting for the ressponse, then decoding
+static int se050_transceive(uint8_t *apdu, int len, uint8_t *resp, uint8_t **body)
+{
+    if(t1_send(n_s_toggle ? 0x40 : 0x00, len, apdu) < 0) return -1;
+    n_s_toggle ^= 1;
+
+    uint8_t pcb;
+    int size = t1_recv(&pcb, resp, 254);
+    if(size < 0) return -1;
+
+    uint16_t status;
+    int body_len = rapdu_decode(resp, size, body, &status);
+    if(body_len < 0 || status != 0x9000) {
+        output("status: %04x\n", status);
+        return -1;
+    }
+    return body_len;
+}
+
 
 int se050_AppletSelect()
 {
@@ -235,18 +259,10 @@ int se050_AppletSelect()
                         0x03, 0x00, 0x00, 0x00,
                         0x00, 0x00};
     
-    if(t1_send(n_s_toggle ? 0x40 : 0x00, sizeof(cmd), cmd) < 0) return -1;
-    n_s_toggle ^= 1;
+    uint8_t resp[254], *body;
+    if(se050_transceive(cmd, sizeof(cmd), resp, &body) < 0) return -1;
 
-    uint8_t pcb;
-    uint8_t resp[254];
-    int size = t1_recv(&pcb, resp, sizeof(resp));
-    if(size < 2) return -1;
-
-    if(resp[size - 2] != 0x90 || resp[size - 1] != 0x00)
-        return -1;
-
-    output("AppletSelect: %02x %02x %02x\n", resp[0], resp[1], resp[2]);
+    output("AppletSelect: %02x %02x %02x\n", body[0], body[1], body[2]);
     
     return 0;
 }
@@ -265,18 +281,8 @@ int se050_WriteSymmKey(uint8_t *keyid, uint8_t *key, uint8_t key_len)
     uint8_t apdu[80];
     int n = apdu_assemble(apdu, INS_WRITE, P1_HMAC, P2_DEFAULT, data, p - data, 0);
 
-    if(t1_send(n_s_toggle ? 0x40 : 0x00, n, apdu) < 0) return -1;
-    n_s_toggle ^= 1;
-
-    uint8_t pcb;
-    uint8_t resp[254];
-    int size = t1_recv(&pcb, resp, sizeof(resp));
-    if(size < 0) return -1;
-
-    uint8_t *body;
-    uint16_t status;
-    if(rapdu_decode(resp, size, &body, &status) < 0 || status != 0x9000)
-        return -1;
+    uint8_t resp[254], *body;
+    if(se050_transceive(apdu, n, resp, &body) < 0) return -1;
 
     return 0;
 }
@@ -296,19 +302,9 @@ int se050_MACOneShot_HMAC_SHA1(uint8_t *keyid, uint8_t *msg, uint8_t msg_len, ui
     uint8_t apdu[80];
     int len = apdu_assemble(apdu, INS_CRYPTO, P1_MAC, P2_GENERATE_ONESHOT, data, p - data, 1);
 
-    if(t1_send(n_s_toggle ? 0x40 : 0x00, len, apdu) < 0) return -1;
-    n_s_toggle ^= 1;
-
-    uint8_t pcb;
-    uint8_t resp[254];
-    int size = t1_recv(&pcb, resp, sizeof(resp));
-    if(size < 0) return -1;
-
-    uint8_t *body;
-    uint16_t status;
-    int body_len = rapdu_decode(resp, size, &body, &status);
-    if(body_len < 0 || status != 0x9000)
-        return -1;
+    uint8_t resp[254], *body;
+    int body_len = se050_transceive(apdu, len, resp, &body);
+    if(body_len < 0) return -1;
 
     // MAC is in TLV[TAG_1]
     uint8_t tag, *val;
@@ -333,18 +329,8 @@ int se050_DeleteSecureObject(uint8_t *keyid)
     uint8_t apdu[16];
     int len = apdu_assemble(apdu, INS_MGMT, P1_DEFAULT, P2_DELETE_OBJECT, data, p - data, 0);
 
-    if(t1_send(n_s_toggle ? 0x40 : 0x00, len, apdu) < 0) return -1;
-    n_s_toggle ^= 1;
-
-    uint8_t pcb;
-    uint8_t resp[254];
-    int size = t1_recv(&pcb, resp, sizeof(resp));
-    if(size < 0) return -1;
-
-    uint8_t *body;
-    uint16_t status;
-    if(rapdu_decode(resp, size, &body, &status) < 0 || status != 0x9000)
-        return -1;
+    uint8_t resp[254], *body;
+    if(se050_transceive(apdu, len, resp, &body) < 0) return -1;
 
     return 0;
 }
@@ -367,4 +353,72 @@ int totp_generate(uint8_t *keyid, int64_t unix_time)
     int off = mac[19] & 0x0f;
     uint32_t code = (mac[off] & 0x7f) << 24 | mac[off + 1] << 16 | mac[off + 2] << 8 | mac[off + 3];
     return code % 1000000;
+}
+
+
+// ----------- @joshdelg TLS extension ----------
+
+// Generate a new ephemeral pub/priv key pair using some eliptic curve magic
+int se050_GenECKey(uint8_t *keyid)
+{
+    // 4.7.1.1 WriteECKey
+    uint8_t curve = NIST_P256; // Allegedly the standard?
+    uint8_t data[16];
+    uint8_t *p = tlv_encode(data, TAG_1, keyid, OBJECT_ID_SIZE);
+    p = tlv_encode(p, TAG_2, &curve, 1);
+
+    uint8_t apdu[32];
+    int len = apdu_assemble(apdu, INS_WRITE, P1_KEY_PAIR | P1_EC, P2_DEFAULT, data, p - data, 0);
+
+    uint8_t resp[254], *body;
+    if(se050_transceive(apdu, len, resp, &body) < 0) return -1;
+
+    return 0;
+}
+
+// Fetch the public half of a key pair (so we can exchange)
+int se050_ReadPubKey(uint8_t *keyid, uint8_t *pub)
+{
+    // 4.7.3.1 ReadObject: key pair -> public key in TLV[TAG_1]
+    uint8_t data[8];
+    uint8_t *p = tlv_encode(data, TAG_1, keyid, OBJECT_ID_SIZE);
+
+    uint8_t apdu[16];
+    int len = apdu_assemble(apdu, INS_READ, P1_DEFAULT, P2_DEFAULT, data, p - data, 1);
+
+    uint8_t resp[254], *body;
+    int body_len = se050_transceive(apdu, len, resp, &body);
+    if(body_len < 0) return -1;
+
+    uint8_t tag, *val;
+    uint16_t val_len;
+    if(!tlv_decode(body, body_len, &tag, &val, &val_len) || tag != TAG_1 || val_len != EC_PUB_LEN)
+        return -1;
+
+    memcpy(pub, val, EC_PUB_LEN);
+    return 0;
+}
+
+// Generate the shared secret via Diffe-Hellman
+int se050_ECDH(uint8_t *keyid, uint8_t *peer_pub, uint8_t *secret)
+{
+    // 4.10.3.1 ECDHGenerateSharedSecret: private key + peer public key
+    uint8_t data[80];
+    uint8_t *p = tlv_encode(data, TAG_1, keyid, OBJECT_ID_SIZE);
+    p = tlv_encode(p, TAG_2, peer_pub, EC_PUB_LEN);
+
+    uint8_t apdu[96];
+    int len = apdu_assemble(apdu, INS_CRYPTO, P1_EC, P2_DH, data, p - data, 1);
+
+    uint8_t resp[254], *body;
+    int body_len = se050_transceive(apdu, len, resp, &body);
+    if(body_len < 0) return -1;
+
+    uint8_t tag, *val;
+    uint16_t val_len;
+    if(!tlv_decode(body, body_len, &tag, &val, &val_len) || tag != TAG_1 || val_len != EC_SECRET_LEN)
+        return -1;
+
+    memcpy(secret, val, EC_SECRET_LEN);
+    return 0;
 }

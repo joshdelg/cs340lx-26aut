@@ -1,4 +1,5 @@
 PROGS = main.c
+PROGS = tls.c
 
 COMMON_SRC = i2c.c se050.c
 

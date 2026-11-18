@@ -26,4 +26,11 @@ int se050_DeleteSecureObject(uint8_t *keyid);
 // Application layer function
 int totp_generate(uint8_t *keyid, int64_t unix_time);
 
+// TLS extension (NIST P-256)
+#define EC_PUB_LEN 65    // 0x04 | X | Y
+#define EC_SECRET_LEN 32
+int se050_GenECKey(uint8_t *keyid);
+int se050_ReadPubKey(uint8_t *keyid, uint8_t *pub);
+int se050_ECDH(uint8_t *keyid, uint8_t *peer_pub, uint8_t *secret);
+
 #endif
